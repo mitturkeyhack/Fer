@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Fer</string>
+    <string name="widget_name">Fer — Eniğin</string>
+    <string name="a11y_desc">Fer, Instagram Reels, YouTube Shorts ve TikTok\'ta kaç kısa video izlediğini saymak ve sayacı videonun üstünde göstermek için bu izni kullanır. Mesajlarını, şifreni veya banka bilgilerini okumaz. Hiçbir veri telefonundan dışarı çıkmaz.</string>
+</resources>

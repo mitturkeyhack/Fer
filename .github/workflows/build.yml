@@ -1,0 +1,64 @@
+name: APK derle
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      # İmza anahtarı depoda tutulmaz. KEYSTORE_B64 sırrı varsa o kullanılır;
+      # yoksa ilk derlemede bir anahtar üretilip önbellekte saklanır, sonraki derlemeler aynı anahtarı kullanır
+      # (böylece güncellemeler eski sürümün üstüne kurulur).
+      - name: İmza anahtarını önbellekten al
+        uses: actions/cache@v4
+        with:
+          path: app/imza.jks
+          key: fer-imza-v1
+
+      - name: İmza anahtarını hazırla
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          FER_KS_PASS: ${{ secrets.FER_KS_PASS || 'ferimza' }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > app/imza.jks
+          elif [ ! -f app/imza.jks ]; then
+            keytool -genkeypair -keystore app/imza.jks -alias fer -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$FER_KS_PASS" -keypass "$FER_KS_PASS" -dname "CN=Fer, O=Erkam Yazilim, C=TR"
+          fi
+
+      - name: APK derle
+        env:
+          FER_KS_PASS: ${{ secrets.FER_KS_PASS || 'ferimza' }}
+        run: gradle :app:assembleRelease -PbuildNumber=${{ github.run_number }} --stacktrace
+
+      - name: APK'yı adlandır
+        run: cp app/build/outputs/apk/release/app-release.apk Fer.apk
+
+      - name: GitHub Releases'e yükle
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Fer 1.0.${{ github.run_number }}
+          body: |
+            Fer — Reels sayacı. Telefona indirmek için aşağıdaki Fer.apk dosyasına dokun.
+            Her zaman en yeni sürüm: https://github.com/mitturkeyhack/fer/releases/latest/download/Fer.apk
+          files: Fer.apk
+          make_latest: true

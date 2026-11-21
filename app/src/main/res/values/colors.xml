@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="fer_bg">#FF0B0C10</color>
+    <color name="fer_surface">#FF14161D</color>
+    <color name="fer_launcher_bg">#FF14161C</color>
+</resources>
