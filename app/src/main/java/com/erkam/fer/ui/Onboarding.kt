@@ -415,7 +415,7 @@ private fun StepHafiza(back: () -> Unit, next: () -> Unit) {
 }
 
 // ---------------------------------------------------------------- 7 · Bilim kartları
-private data class Sci(val tag: String, val big: String, val sub: String, val title: String, val body: String, val src: String)
+data class Sci(val tag: String, val big: String, val sub: String, val title: String, val body: String, val src: String)
 
 val SCIENCE = listOf(
     Sci("1 · DİKKAT", "98.299", "kişi · 71 çalışma", "Dikkatin dağılıyor",
