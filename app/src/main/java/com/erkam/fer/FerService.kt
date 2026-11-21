@@ -24,6 +24,16 @@ class FerService : AccessibilityService() {
         private val AD_WORDS = setOf("sponsorlu", "sponsored", "reklam", "ad", "promoted", "sponsorlu içerik", "reklamı atla", "skip ad")
         private val NUMBERISH = Regex("^[\\d.,\\s:%+]*[\\d]+[\\d.,\\s:%]*(b|bn|k|m|mn|b\\.)?$", RegexOption.IGNORE_CASE)
 
+        /** Her videoda aynı kalan düğme yazıları: imzaya katılmaz. */
+        private val UI_WORDS = setOf(
+            "reels", "beğen", "beğenildi", "beğenmekten vazgeç", "yorum", "yorum yap", "yorumlar", "paylaş", "gönder", "kaydet", "kaydedildi",
+            "daha fazla", "diğer", "takip et", "takip ediliyor", "takip", "sesi aç", "sesi kapat", "ses", "oynat", "duraklat", "durdur",
+            "kamera", "geri", "ara", "orijinal ses", "remix", "abone ol", "abone olundu", "beğenme", "dislike", "like", "liked", "comment",
+            "comments", "share", "send", "save", "saved", "more", "more options", "follow", "following", "play", "pause", "mute", "unmute",
+            "audio", "original audio", "subscribe", "subscribed", "back", "search", "camera", "seçenekler", "options", "menü", "menu",
+            "senin için", "for you", "takip edilenler", "keşfet", "explore", "home", "ana sayfa", "profil", "profile", "gelen kutusu", "inbox"
+        )
+
         private val VIEWER_IDS = mapOf(
             Store.IG to listOf("com.instagram.android:id/clips_viewer_view_pager", "com.instagram.android:id/clips_viewer_pager"),
             Store.YT to listOf("com.google.android.youtube:id/reel_recycler", "com.google.android.youtube:id/reel_player_page_container", "com.google.android.youtube:id/reel_watch_player"),
@@ -40,6 +50,12 @@ class FerService : AccessibilityService() {
     private var lastCheck = 0L
 
     private var lastSig: String? = null
+    private var lastTexts: List<String> = emptyList()
+    /** Yeni bir videoya geçildiğine dair işaret: kaydırma ya da yeni ekran açılması. Durdurmak/oynatmak bunu tetiklemez. */
+    @Volatile private var moved = false
+    private var inViewer = false
+    private val textHits = HashMap<String, Int>()
+    private val learnedUi = HashSet<String>()
     private var candidate: String? = null
     private var candidateAt = 0L
     private val seen = LinkedHashSet<String>()
@@ -67,6 +83,11 @@ class FerService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
+        val type = event.eventType
+        if (type == AccessibilityEvent.TYPE_VIEW_SCROLLED || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val pkg = event.packageName?.toString()
+            if (pkg != null && pkg != packageName && Store.appEnabled(pkg)) moved = true
+        }
         scheduleCheck(if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) 60L else 250L)
     }
 
@@ -93,7 +114,15 @@ class FerService : AccessibilityService() {
         if (viewer == null) {
             bubble.hide()
             candidate = null
+            inViewer = false
             return
+        }
+        if (!inViewer) {
+            // Oynatıcıya yeni girildi (ana sayfadan ya da DM'den): ilk video sayılabilir.
+            inViewer = true
+            moved = true
+            lastTexts = emptyList()
+            lastSig = null
         }
 
         val now = System.currentTimeMillis()
@@ -140,15 +169,22 @@ class FerService : AccessibilityService() {
             return
         }
 
+        val prevTexts = lastTexts
         lastSig = sig
-        if (texts.any { it.lowercase() in AD_WORDS || it.lowercase().startsWith("sponsorlu") }) return
-        if (!seen.add(sig)) return
+        lastTexts = texts
+        // Kaydırma olmadan değişen yazılar (durdurma, oynatma, beğenme, açıklamayı açma) yeni video değildir.
+        if (!moved) return
+        // Yazıların çoğu öncekiyle aynıysa aynı videodur.
+        if (sameReel(prevTexts, texts)) return
+        if (texts.any { it.lowercase() in AD_WORDS || it.lowercase().startsWith("sponsorlu") || it.lowercase().startsWith("sponsored") }) { moved = false; return }
+        if (!seen.add(sig)) { moved = false; return }
         if (seen.size > 600) seen.remove(seen.first())
+        moved = false
+        learn(texts)
 
         val n = Store.addReel(pkg)
         val stageChanged = bubble.bump(n, limit)
         Feedback.tick()
-        Feedback.sound("pop", 0.35f)
         if (stageChanged) {
             Feedback.double()
         }
@@ -205,6 +241,23 @@ class FerService : AccessibilityService() {
         return null
     }
 
+    private fun sameReel(a: List<String>, b: List<String>): Boolean {
+        if (a.isEmpty() || b.isEmpty()) return false
+        val sa = a.toSet()
+        val common = b.count { it in sa }
+        return common * 2 >= minOf(a.size, b.size)
+    }
+
+    /** Birçok farklı videoda tekrar eden yazılar uygulamanın düğmeleridir; zamanla imzadan çıkarılır. */
+    private fun learn(texts: List<String>) {
+        for (t in texts) {
+            val n = (textHits[t] ?: 0) + 1
+            textHits[t] = n
+            if (n >= 4) learnedUi.add(t)
+        }
+        if (textHits.size > 3000) textHits.clear()
+    }
+
     /** Görünen videonun yazıları (kullanıcı adı, açıklama, müzik…). Sayılar hariç (beğeni sayısı değişebilir). */
     private fun visibleTexts(viewer: AccessibilityNodeInfo): List<String> {
         val out = ArrayList<String>()
@@ -219,6 +272,9 @@ class FerService : AccessibilityService() {
                     val t = raw?.toString()?.trim() ?: continue
                     if (t.length < 2 || t.length > 120) continue
                     if (NUMBERISH.matches(t)) continue
+                    val low = t.lowercase()
+                    if (low in UI_WORDS || t in learnedUi) continue
+                    if (low.endsWith(" beğenme") || low.endsWith(" likes") || low.endsWith(" yorum") || low.endsWith(" comments")) continue
                     if (t !in out) out.add(t)
                 }
             }

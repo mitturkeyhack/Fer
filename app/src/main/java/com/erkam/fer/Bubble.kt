@@ -86,7 +86,7 @@ class Bubble(private val svc: AccessibilityService) {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -96,11 +96,61 @@ class Bubble(private val svc: AccessibilityService) {
         }
     }
 
+    private var lp: WindowManager.LayoutParams? = null
+
+    /** Kabarcık parmakla ekranda istenen yere sürüklenebilir; her yeni açılışta yine ortadan başlar. */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun enableDrag(view: View, p: WindowManager.LayoutParams) {
+        var downX = 0f
+        var downY = 0f
+        var startX = 0
+        var startY = 0
+        var dragging = false
+        val slop = android.view.ViewConfiguration.get(svc).scaledTouchSlop
+        view.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; downY = e.rawY; startX = p.x; startY = p.y; dragging = false
+                    true
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - downX
+                    val dy = e.rawY - downY
+                    if (!dragging && (kotlin.math.abs(dx) > slop || kotlin.math.abs(dy) > slop)) {
+                        dragging = true
+                        Feedback.tick()
+                        v.animate().scaleX(1.08f).scaleY(1.08f).setDuration(120).start()
+                    }
+                    if (dragging) {
+                        val dm = svc.resources.displayMetrics
+                        val halfRoom = ((dm.widthPixels - v.width) / 2).coerceAtLeast(0)
+                        p.x = (startX + dx.toInt()).coerceIn(-halfRoom, halfRoom)
+                        p.y = (startY + dy.toInt()).coerceIn(0, (dm.heightPixels - v.height).coerceAtLeast(0))
+                        try { wm.updateViewLayout(v, p) } catch (_: Exception) {}
+                    }
+                    true
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    if (dragging) {
+                        v.animate().scaleX(1f).scaleY(1f).setDuration(160).start()
+                        Feedback.tick()
+                    }
+                    dragging = false
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
     fun show(count: Int, limit: Int) {
         if (!shown) {
             build()
             try {
-                wm.addView(root, params())
+                val p = params()
+                lp = p
+                enableDrag(root!!, p)
+                wm.addView(root, p)
                 shown = true
                 stage = -1
                 root?.alpha = 0f
