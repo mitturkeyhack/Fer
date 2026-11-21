@@ -440,7 +440,7 @@ private fun StepBilim(back: () -> Unit, next: () -> Unit) {
         }
         Crossfade(targetState = i, animationSpec = tween(250), label = "sci") { k ->
             val c = SCIENCE[k]
-            Card(radius = 28.dp, padding = 22.dp, modifier = Modifier.heightIn(min = 360.dp)) {
+            Card(radius = 28.dp, padding = 22.dp) {
                 T(c.tag, 12.sp, C.Amber, FontWeight.ExtraBold, letterSpacing = 0.8.sp)
                 Spacer(Modifier.height(12.dp))
                 T(c.big, 44.sp, weight = FontWeight.ExtraBold, letterSpacing = (-1.5).sp, lineHeight = 46.sp)
@@ -449,7 +449,7 @@ private fun StepBilim(back: () -> Unit, next: () -> Unit) {
                 T(c.title, 21.sp, weight = FontWeight.ExtraBold)
                 Spacer(Modifier.height(8.dp))
                 T(c.body, 15.sp, C.Text2)
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.height(18.dp))
                 Row(
                     Modifier.clip(RoundedCornerShape(20.dp)).background(C.Surface2).border(1.dp, C.Line2, RoundedCornerShape(20.dp))
                         .padding(horizontal = 14.dp, vertical = 10.dp),
